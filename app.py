@@ -6,7 +6,7 @@ import io
 import re
 
 # 1. ПОДКЛЮЧЕНИЕ
-API_KEY = "ВАШ_КЛЮЧ_ОТ_OPENROUTER" # Убедитесь, что вставили свой ключ!
+API_KEY = "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" # Убедитесь, что вставили свой ключ!
 
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
@@ -76,3 +76,4 @@ if st.button("Сгенерировать протокол разногласий
             
         except Exception as e:
             st.error(f"Ошибка: {e}")
+
