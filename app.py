@@ -1,98 +1,78 @@
 import streamlit as st
 from openai import OpenAI
 import docx
+from docx import Document
 import io
 import re
 
-# 1. ПОДКЛЮЧЕНИЕ К OPENROUTER
-API_KEY = "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" # <-- Вставьте ваш ключ сюда!
+# 1. ПОДКЛЮЧЕНИЕ
+API_KEY = "ВАШ_КЛЮЧ_ОТ_OPENROUTER" # Убедитесь, что вставили свой ключ!
 
 client = OpenAI(
     base_url="https://openrouter.ai/api/v1",
     api_key=API_KEY,
 )
 
-# 2. ФУНКЦИИ ЧТЕНИЯ И ЦЕНЗУРЫ
+# Функция для создания Word-файла из текста ИИ
+def create_word_file(content):
+    doc = Document()
+    doc.add_heading('Протокол разногласий (Евросиб СПб-ТС)', 0)
+    doc.add_paragraph(content)
+    
+    bio = io.BytesIO()
+    doc.save(bio)
+    bio.seek(0)
+    return bio
+
 def read_docx(file_bytes):
     doc = docx.Document(io.BytesIO(file_bytes))
     return '\n'.join([para.text for para in doc.paragraphs])
 
 def sanitize_text(text):
-    # Скрываем email
     text = re.sub(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', '[EMAIL СКРЫТ]', text)
-    # Скрываем телефоны
     text = re.sub(r'\+?[78][-\(]?\d{3}\)?-?\d{3}-?\d{2}-?\d{2}', '[ТЕЛЕФОН СКРЫТ]', text)
-    # Скрываем расчетные счета (20 цифр)
     text = re.sub(r'\b\d{20}\b', '[РАСЧЕТНЫЙ СЧЕТ СКРЫТ]', text)
-    # Скрываем ИНН, КПП, ОГРН (10-15 цифр)
     text = re.sub(r'\b\d{10,15}\b', '[РЕКВИЗИТЫ СКРЫТЫ]', text)
-    # Скрываем денежные суммы в рублях
     text = re.sub(r'\b\d{1,3}(?:[.,\s]\d{3})*(?:[.,]\d{1,2})?\s*(?:руб\.|рублей|₽)', '[СУММА СКРЫТА]', text)
     return text
 
-# ВАШ ПРОФЕССИОНАЛЬНЫЙ ПРОМПТ
-PROFESSIONAL_PROMPT = """I. Роль и специализация
-Вы — ведущий юрист-эксперт высшей квалификации (20+ лет практики) в области права железнодорожного транспорта Российской Федерации и государств СНГ, со специализацией в договорных отношениях, связанных с ремонтом и эксплуатацией грузовых железнодорожных вагонов.
-Вы ВО ВСЕХ ЗАДАЧАХ представляете и защищаете интересы АО «Евросиб СПб‑ТС» (далее — «Заказчик»). Ваша узкая задача — подготовка проектов протоколов разногласий к договорам на ремонт вагонов.
+PROFESSIONAL_PROMPT = """Вы — ведущий юрист АО «Евросиб СПб‑ТС». Ваша задача — подготовка протокола разногласий к договору на ремонт вагонов. 
+Защищайте интересы Заказчика (качество, сроки, гарантии, неустойки). 
+Выдай результат СТРОГО в виде таблицы: Пункт | Редакция Подрядчика | Редакция АО «Евросиб СПб-ТС» | Обоснование."""
 
-II. Нормативно-правовая база и отраслевые стандарты
-Опирайтесь на: ФЗ № 18-ФЗ «Устав ЖД транспорта», ФЗ № 17-ФЗ, ГК РФ (гл. 21, 22, 27-29, 37, 39), ПТЭ, РД 32 ЦВ 168‑2017, РД 32 ЦВ 169‑2017, ГОСТы (32884‑2014, 34632‑2020), актуальную судебную практику ВС РФ.
-
-III. Отраслевой контекст
-Учитывайте ужесточение требований ОАО «РЖД» к приемке вагонов, сокращение числа допущенных ВРЗ, дефицит мощностей, рост стоимости ремонта.
-
-IV. Стороны и приоритеты
-Заказчик: АО «Евросиб СПб‑ТС». Исполнитель: ВРЗ/Депо.
-Приоритеты: Безопасность и качество, жесткие сроки ремонта, адекватные неустойки, прозрачное ценообразование, ограничение рисков Заказчика. Любые условия, ухудшающие положение Заказчика по сравнению с ГК РФ и рынком — оспаривать.
-
-V. Формат вывода
-Выдай результат СТРОГО в виде таблицы Markdown:
-| Пункт договора | Редакция Подрядчика | Редакция АО «Евросиб СПб-ТС» | Обоснование позиции Заказчика |
-(Скопируй исходный текст в колонку 2, напиши нашу жесткую редакцию в колонку 3, дай краткий аргумент в колонку 4)."""
-
-# 3. ИНТЕРФЕЙС НАШЕГО САЙТА
 st.title("⚖️ Анализатор договоров: Евросиб СПб-ТС")
-st.write("Безопасный анализ договоров с автоматическим скрытием коммерческой тайны.")
 
 uploaded_file = st.file_uploader("Загрузите проект договора (.docx)", type=['docx'])
-
-# Блок настроек
-with st.expander("Настройки ИИ и Промпт", expanded=False):
-    system_prompt = st.text_area("Правила проверки (можно редактировать):", value=PROFESSIONAL_PROMPT, height=300)
-
 use_censor = st.checkbox("🛡️ Обезличить текст (скрыть суммы, счета, ИНН)", value=True)
 
-# Кнопка запуска
 if st.button("Сгенерировать протокол разногласий"):
     if uploaded_file is not None:
-        
-        # Читаем текст
         raw_text = read_docx(uploaded_file.read())
-        
-        # Применяем цензора, если галочка стоит
-        if use_censor:
-            final_text = sanitize_text(raw_text)
-            with st.expander("👀 Посмотреть обезличенный текст (отправляется в ИИ)"):
-                st.write(final_text)
-        else:
-            final_text = raw_text
+        final_text = sanitize_text(raw_text) if use_censor else raw_text
 
-        st.info('Анализирую договор через независимый ИИ-шлюз... Пожалуйста, подождите.')
+        st.info('ИИ анализирует документ... Это может занять до 1 минуты.')
         
         try:
-            # Отправляем в ИИ
             response = client.chat.completions.create(
                 model="openrouter/free", 
                 messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": f"Сделай протокол разногласий для этого договора:\n\n{final_text}"}
+                    {"role": "system", "content": PROFESSIONAL_PROMPT},
+                    {"role": "user", "content": f"Сделай протокол разногласий:\n\n{final_text}"}
                 ]
             )
             
-            st.success("Готово!")
-            st.markdown(response.choices[0].message.content)
+            result_text = response.choices[0].message.content
+            st.success("Анализ завершен!")
+            st.markdown(result_text)
+
+            # КНОПКА СКАЧИВАНИЯ
+            word_file = create_word_file(result_text)
+            st.download_button(
+                label="📥 Скачать протокол в Word",
+                data=word_file,
+                file_name="Protocol_Eurosib.docx",
+                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            )
             
         except Exception as e:
-            st.error(f"Произошла ошибка: {e}")
-    else:
-        st.warning("Пожалуйста, сначала загрузите файл договора.")
+            st.error(f"Ошибка: {e}")
