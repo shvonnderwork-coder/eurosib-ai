@@ -28,12 +28,12 @@ def read_docx(file_bytes):
     doc = docx.Document(io.BytesIO(file_bytes))
     full_text = []
     
-    # 1. Читаем обычный текст (абзацы)
+    # Читаем обычный текст
     for para in doc.paragraphs:
         if para.text.strip():
             full_text.append(para.text)
             
-    # 2. Читаем текст внутри таблиц (там прячутся реквизиты!)
+    # Читаем текст внутри таблиц
     for table in doc.tables:
         for row in table.rows:
             for cell in row.cells:
@@ -42,24 +42,23 @@ def read_docx(file_bytes):
                     
     return '\n'.join(full_text)
 
-def sanitize_text(text):
-    # Базовые правила (email, телефон, счета, суммы)
+# Функция 1: Прячет деньги и контакты
+def sanitize_financial(text):
     text = re.sub(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', '[EMAIL СКРЫТ]', text)
     text = re.sub(r'\+?[78][-\(]?\d{3}\)?-?\d{3}-?\d{2}-?\d{2}', '[ТЕЛЕФОН СКРЫТ]', text)
     text = re.sub(r'\b\d{20}\b', '[РАСЧЕТНЫЙ СЧЕТ СКРЫТ]', text)
-    text = re.sub(r'\b\d{10,15}\b', '[РЕКВИЗИТЫ СКРЫТЫ]', text)
     text = re.sub(r'\b\d{1,3}(?:[.,\s]\d{3})*(?:[.,]\d{1,2})?\s*(?:руб\.|рублей|₽)', '[СУММА СКРЫТА]', text)
-    
-    # ПДн: ИНН, ОГРН, Паспорт, СНИЛС
+    return text
+
+# Функция 2: Прячет ПДн и реквизиты
+def sanitize_personal(text):
     text = re.sub(r'\b\d{10}\b|\b\d{12}\b|\b\d{13}\b|\b\d{15}\b', '[ИНН/ОГРН СКРЫТ]', text)
+    text = re.sub(r'\b\d{10,15}\b', '[РЕКВИЗИТЫ СКРЫТЫ]', text)
     text = re.sub(r'\b\d{2}\s?\d{2}\s?\d{6}\b', '[ПАСПОРТ СКРЫТ]', text)
     text = re.sub(r'\b\d{3}-\d{3}-\d{3}[-\s]\d{2}\b', '[СНИЛС СКРЫТ]', text)
     text = re.sub(r'(?:г\.|ул\.|д\.|кв\.|пер\.|пр-т|обл\.|край)\s*([А-Яа-яЁё0-9\s-]{2,20})', '[АДРЕС СКРЫТ]', text)
-    
-    # Жесткий поиск ФИО (Ловит: Иванов И.И., ИВАНОВ И. И., Иванов Иван Иванович, ИВАНОВ ИВАН ИВАНОВИЧ)
     text = re.sub(r'[А-ЯЁ][а-яёА-ЯЁa-zA-Z\-]+\s+[А-ЯЁ]\.\s*[А-ЯЁ]\.', '[ФИО СКРЫТО]', text)
     text = re.sub(r'[А-ЯЁ][а-яёА-ЯЁa-zA-Z\-]+\s+[А-ЯЁ][а-яёА-ЯЁa-zA-Z\-]+\s+[А-ЯЁ][а-яёА-ЯЁa-zA-Z\-]+', '[ФИО СКРЫТО]', text)
-    
     return text
 
 PROFESSIONAL_PROMPT = """I. Роль и специализация
@@ -342,12 +341,21 @@ XI. Примеры типовых запросов к AI‑юристу
 st.title("⚖️ Анализатор договоров по ремонту: Евросиб СПб-ТС")
 
 uploaded_file = st.file_uploader("Загрузите проект договора (.docx)", type=['docx'])
-use_censor = st.checkbox("🛡️ Обезличить текст (скрыть суммы, счета, ИНН)", value=True)
+
+# Две раздельные галочки в интерфейсе
+use_censor_fin = st.checkbox("🛡️ Скрыть финансовые данные (суммы, счета, контакты)", value=True)
+use_censor_pdn = st.checkbox("👤 Скрыть персональные данные (ФИО, паспорта, адреса, ИНН)", value=True)
 
 if st.button("Сгенерировать протокол разногласий"):
     if uploaded_file is not None:
         raw_text = read_docx(uploaded_file.read())
-        final_text = sanitize_text(raw_text) if use_censor else raw_text
+        
+        # Применяем фильтры по очереди, если галочки нажаты
+        final_text = raw_text
+        if use_censor_fin:
+            final_text = sanitize_financial(final_text)
+        if use_censor_pdn:
+            final_text = sanitize_personal(final_text)
 
         st.info('ИИ анализирует документ... Это может занять до 1 минуты.')
         
@@ -375,6 +383,7 @@ if st.button("Сгенерировать протокол разногласий
             
         except Exception as e:
             st.error(f"Ошибка: {e}")
+
 
 
 
